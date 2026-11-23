@@ -179,6 +179,18 @@
       <div class="chart-box tall"><canvas id="chartHistori"></canvas></div>
       <div class="legend-row" id="legendHistori"></div>
     </div>
+
+    <div class="card chart-card" style="margin-top:12px;">
+      <div class="toolbar">
+        <span style="font-size:13px;color:var(--text-secondary);font-weight:500;">Lihat data harian bulan lama:</span>
+        <select id="selectBulanDetail"></select>
+        <select id="selectTahunDetail"></select>
+        <button class="tab" id="btnTampilkanDetail">Tampilkan</button>
+      </div>
+      <div id="detailBulanStatus" style="font-size:12.5px;color:var(--text-muted);"></div>
+      <div class="chart-box tall" id="detailBulanChartBox" style="display:none;"><canvas id="chartDetailBulan"></canvas></div>
+      <div class="legend-row" id="legendDetailBulan"></div>
+    </div>
   </section>
 
   <section id="sectionAnalisa">
@@ -381,6 +393,75 @@ function renderHistori(data){
   document.getElementById('btnBulanan').onclick = function(){ historiMode='bulanan'; toggleHistoriTabs(); gambarHistori(data); };
 
   gambarHistori(data);
+  initDetailBulan(tahunSet);
+}
+
+// ---------- DETAIL BULAN TERTENTU (data lama, diambil on-demand) ----------
+let chartDetailBulan = null;
+
+function initDetailBulan(tahunSet){
+  const selectBulan = document.getElementById('selectBulanDetail');
+  const selectTahun = document.getElementById('selectTahunDetail');
+  selectBulan.innerHTML = NAMA_BULAN_ID.map(function(n,i){ return '<option value="'+(i+1)+'">'+n+'</option>'; }).join('');
+  selectTahun.innerHTML = tahunSet.slice().reverse().map(function(t){ return '<option value="'+t+'">'+t+'</option>'; }).join('');
+
+  const sekarang = new Date();
+  selectBulan.value = String(sekarang.getMonth() + 1);
+  selectTahun.value = String(sekarang.getFullYear());
+
+  document.getElementById('btnTampilkanDetail').onclick = function(){
+    muatDetailBulan(Number(selectTahun.value), Number(selectBulan.value));
+  };
+}
+
+async function muatDetailBulan(tahun, bulanSatuBerbasis){
+  const status = document.getElementById('detailBulanStatus');
+  const box = document.getElementById('detailBulanChartBox');
+  status.textContent = 'Memuat data ' + NAMA_BULAN_ID[bulanSatuBerbasis-1] + ' ' + tahun + '...';
+  box.style.display = 'none';
+  try{
+    const url = CONFIG.API_URL + (CONFIG.API_URL.indexOf('?') === -1 ? '?' : '&') + 'tahunDetail=' + tahun + '&bulanDetail=' + bulanSatuBerbasis;
+    const res = await fetch(url, { cache: 'no-store' });
+    const d = await res.json();
+    if (d.status !== 'ok') { status.textContent = 'Data ' + NAMA_BULAN_ID[bulanSatuBerbasis-1] + ' ' + tahun + ' tidak ditemukan.'; return; }
+
+    status.textContent = (d.namaBulan + ' ' + d.tahun) + '  ·  Total: Kantor/Mrawan ' + fmt(d.total.kantor) + ' mm, Sumbersari ' + fmt(d.total.sumbersari) + ' mm, Tanah Manis ' + fmt(d.total.tanahManis) + ' mm';
+
+    const labels = d.harian.map(function(h){ return h.tgl; });
+    const datasets = STASIUN.map(function(s){
+      return {
+        label: s.label,
+        data: d.harian.map(function(h){ return h[s.key] || 0; }),
+        backgroundColor: s.hex, borderRadius: 3, maxBarThickness: 14
+      };
+    });
+
+    box.style.display = 'block';
+    if (chartDetailBulan) chartDetailBulan.destroy();
+    const ctx = document.getElementById('chartDetailBulan').getContext('2d');
+    chartDetailBulan = new Chart(ctx, {
+      type: 'bar',
+      data: { labels: labels, datasets: datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: function(ctx){ return ctx.dataset.label + ': ' + fmt(ctx.raw) + ' mm'; } } }
+        },
+        scales: {
+          x: { title: { display: true, text: 'Tanggal' }, grid: { display: false } },
+          y: { title: { display: true, text: 'mm' }, grid: { color: 'rgba(120,110,95,.12)' } }
+        }
+      }
+    });
+
+    document.getElementById('legendDetailBulan').innerHTML = STASIUN.map(function(s){
+      return '<span class="legend-item"><span class="dot" style="background:'+s.hex+'"></span>'+s.label+'</span>';
+    }).join('');
+  } catch(err){
+    status.textContent = 'Gagal memuat: ' + String(err.message || err);
+  }
 }
 
 function toggleHistoriTabs(){
@@ -480,27 +561,80 @@ function statusPill(kind, text){
   return '<span class="status-pill '+cls+'">'+text+'</span>';
 }
 
+// Fase fisiologis kopi robusta (tanaman hari pendek, Vademicum BAB VII):
+// Generatif (pembentukan bunga) = 21 Maret s/d 23 September
+// Vegetatif (pembentukan cabang/ruas) = 24 September s/d 20 Maret
+function infoFaseFisiologis(tanggal){
+  const m = tanggal.getMonth(), d = tanggal.getDate(), tahun = tanggal.getFullYear();
+  const kunciHariIni = m * 100 + d;
+  const kunciMulaiGeneratif = 2 * 100 + 21;  // 21 Maret
+  const kunciAkhirGeneratif = 8 * 100 + 23;  // 23 September
+  const generatif = kunciHariIni >= kunciMulaiGeneratif && kunciHariIni <= kunciAkhirGeneratif;
+
+  let batasAkhir;
+  if (generatif){
+    batasAkhir = new Date(tahun, 8, 23);
+  } else if (kunciHariIni > kunciAkhirGeneratif){
+    batasAkhir = new Date(tahun + 1, 2, 21);
+  } else {
+    batasAkhir = new Date(tahun, 2, 21);
+  }
+  const sisaHari = Math.max(0, Math.round((batasAkhir - tanggal) / 86400000));
+  return { generatif: generatif, sisaHari: sisaHari };
+}
+
+function formatTanggalIndo(d){
+  return d.toLocaleDateString('id-ID', { day:'numeric', month:'long', year:'numeric' });
+}
+
 function renderAnalisa(data){
   const harianKantor = gabungkanHarianKantor(data);
   const an = hitungAnalisaPembungaan(harianKantor);
-  const bulanSekarang = new Date().getUTCMonth(); // perkiraan, berbasis jam server pembaca
+
+  // "Hari ini" dipakai sebagai acuan tanggal (dari server/WIB), BUKAN jam
+  // browser pembaca - supaya perhitungan fase & proyeksi konsisten siapa pun
+  // yang membuka dan dari zona waktu mana pun.
+  const tglAcuanStr = (data.hari_ini && data.hari_ini.tgl) || data.tanggal_hari_ini;
+  const tglAcuan = tglAcuanStr ? new Date(tglAcuanStr + 'T00:00:00') : new Date();
+  const bulanSekarang = tglAcuan.getMonth();
+  const fase = infoFaseFisiologis(tglAcuan);
 
   // --- Pembungaan ---
-  let pembungaanHtml;
-  if (!an.cukupData){
-    pembungaanHtml = statusPill('warn','Data belum cukup') +
-      '<div class="analisa-body">Histori curah hujan harian Kantor Induk masih kurang dari 10 hari pada data yang tersedia, belum bisa mendeteksi pola hujan pembuka.</div>';
+  const labelFase = fase.generatif
+    ? statusPill('good', 'Fase Generatif (pembentukan bunga)')
+    : statusPill('warn', 'Fase Vegetatif (pembentukan cabang/ruas)');
+  const keteranganFase = fase.generatif
+    ? 'Sedang dalam jendela hari pendek (21 Maret&ndash;23 September) &mdash; <b>'+fase.sisaHari+' hari lagi</b> sebelum masuk fase vegetatif (24 September). Pemicu hujan pembuka pada periode ini berpotensi memacu pembungaan.'
+    : 'Sedang dalam jendela hari panjang (24 September&ndash;20 Maret) &mdash; <b>'+fase.sisaHari+' hari lagi</b> sebelum masuk fase generatif (21 Maret). Pada fase ini tanaman fokus membentuk cabang/ruas baru, <b>bukan bunga</b>; hujan pembuka tidak memicu pembungaan di fase ini.';
+
+  let pembungaanHtml = labelFase + '<div class="analisa-body">' + keteranganFase + '</div>';
+
+  if (!fase.generatif){
+    // Fase vegetatif: info kecepatan pembentukan ruas (Vademicum BAB VII
+    // hal.111) - perkiraan kasar dari kondisi hujan 7 hari terakhir,
+    // BUKAN musim kalender resmi BMKG.
+    const musimBasahSaatIni = an.total7 > 5;
+    pembungaanHtml += '<div class="analisa-body" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">' +
+      'Kecepatan pembentukan ruas (Vademicum): <b>&plusmn;24 hari/ruas</b> saat kondisi basah, <b>&plusmn;72 hari/ruas</b> saat kondisi kering. ' +
+      'Berdasarkan curah hujan 7 hari terakhir (<b>'+fmt(an.total7)+' mm</b>), kondisi saat ini cenderung <b>' + (musimBasahSaatIni ? 'basah &mdash; pembentukan ruas relatif cepat' : 'kering &mdash; pembentukan ruas melambat') + '</b>.' +
+      '</div>';
+  } else if (!an.cukupData){
+    pembungaanHtml += '<div class="analisa-body" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">Histori curah hujan harian Kantor Induk masih kurang dari 10 hari pada data yang tersedia, belum bisa mendeteksi pola hujan pembuka.</div>';
   } else if (an.event){
-    pembungaanHtml = statusPill('good','Hujan pembuka terdeteksi') +
-      '<div class="analisa-body">Terdeteksi <b>'+fmt(an.event.hujan)+' mm</b> hujan setelah <b>'+an.event.keringSebelum+' hari kering</b> berturut-turut, sekitar '+an.event.hariKe+' hari lalu. '+
-      'Sesuai pola pemicu pembungaan robusta, bunga diperkirakan mekar <b>+7 s/d +10 hari</b> setelah tanggal tersebut. '+
-      'Jendela pembungaan fisiologis (hari pendek): <b>21 Maret &ndash; 23 September</b>; taksasi bunga praktis biasanya diamati <b>Juni&ndash;September</b>.</div>';
+    const tglTrigger = new Date(tglAcuan.getTime() - an.event.hariKe * 86400000);
+    const tglMekarAwal = new Date(tglTrigger.getTime() + 7 * 86400000);
+    const tglMekarAkhir = new Date(tglTrigger.getTime() + 10 * 86400000);
+    const tglSfAwal = new Date(tglMekarAwal.getTime() + 35 * 86400000);
+    const tglSfAkhir = new Date(tglMekarAkhir.getTime() + 42 * 86400000);
+    pembungaanHtml += '<div class="analisa-body" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">' +
+      'Terdeteksi <b>'+fmt(an.event.hujan)+' mm</b> hujan pembuka setelah <b>'+an.event.keringSebelum+' hari kering</b> berturut-turut, pada sekitar <b>'+formatTanggalIndo(tglTrigger)+'</b>. '+
+      'Bunga diperkirakan mekar <b>'+formatTanggalIndo(tglMekarAwal)+' &ndash; '+formatTanggalIndo(tglMekarAkhir)+'</b>. '+
+      'Untuk taksasi Slugging Factor/SF (persentase bunga jadi buah), jadwalkan pengamatan lapangan sekitar <b>'+formatTanggalIndo(tglSfAwal)+' &ndash; '+formatTanggalIndo(tglSfAkhir)+'</b> (perkiraan umum 5&ndash;6 minggu setelah mekar &mdash; sesuaikan dengan SOP taksasi SF kebun, angka SF sendiri tetap harus dihitung manual dari jumlah bunga vs buah jadi di lapangan).' +
+      '</div>';
   } else if (an.hariKering >= 5){
-    pembungaanHtml = statusPill('warn','Masa kering berlangsung') +
-      '<div class="analisa-body">Sudah <b>'+an.hariKering+' hari</b> tanpa hujan signifikan (&ge;1mm) di Kantor Induk. Hujan pembuka (&ge;5mm) dalam beberapa hari ke depan berpotensi memicu pembungaan &mdash; pantau terus.</div>';
+    pembungaanHtml += '<div class="analisa-body" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">Sudah <b>'+an.hariKering+' hari</b> tanpa hujan signifikan (&ge;1mm) di Kantor Induk. Hujan pembuka (&ge;5mm) dalam beberapa hari ke depan berpotensi memicu pembungaan &mdash; pantau terus.</div>';
   } else {
-    pembungaanHtml = statusPill('good','Kondisi normal') +
-      '<div class="analisa-body">Belum terdeteksi pola hujan pembuka yang jelas. Curah hujan 7 hari terakhir: <b>'+fmt(an.total7)+' mm</b>.</div>';
+    pembungaanHtml += '<div class="analisa-body" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">Belum terdeteksi pola hujan pembuka yang jelas. Curah hujan 7 hari terakhir: <b>'+fmt(an.total7)+' mm</b>.</div>';
   }
   document.getElementById('pembungaanBody').innerHTML = pembungaanHtml;
 
