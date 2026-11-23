@@ -639,23 +639,38 @@ function renderAnalisa(data){
   document.getElementById('pembungaanBody').innerHTML = pembungaanHtml;
 
   // --- Pemupukan ---
-  // Jendela: Maret(2)-April(3) dan September(8)-Oktober(9), index 0-based
-  const jendelaPemupukan = [[2,3],[8,9]];
-  const sedangDiJendela = jendelaPemupukan.some(function(j){ return bulanSekarang >= j[0] && bulanSekarang <= j[1]; });
+  // Jendela TM (Tanaman Menghasilkan) sesuai Vademicum BAB IX (Formulir Contoh Tanah/Daun, hal. 219 & 226):
+  // pemupukan TM mengikuti 3 periode musim hujan, bukan 2 semester seperti kebun Entrys:
+  //   a. Awal musim hujan     : Oktober(9)/November(10)
+  //   b. Pertengahan musim hujan : Desember(11)/Januari(0)
+  //   c. Akhir musim hujan    : Maret(2)/April(3)
+  // (index bulan 0-based)
+  const jendelaPemupukan = [
+    {label:'Awal musim hujan', bulan:[9,10]},
+    {label:'Pertengahan musim hujan', bulan:[11,0]},
+    {label:'Akhir musim hujan', bulan:[2,3]}
+  ];
+  const jendelaAktif = jendelaPemupukan.find(function(j){ return j.bulan.indexOf(bulanSekarang) !== -1; });
   const cukupLembab = an.total7 > 5;
   let pemupukanHtml;
-  if (sedangDiJendela){
-    pemupukanHtml = statusPill(cukupLembab ? 'good' : 'warn', sedangDiJendela ? 'Masuk jendela pemupukan' : '') +
-      '<div class="analisa-body">Bulan berjalan termasuk jendela pemupukan semester sesuai Vademicum (Maret/April atau September/Oktober). ' +
+  if (jendelaAktif){
+    pemupukanHtml = statusPill(cukupLembab ? 'good' : 'warn', 'Masuk jendela pemupukan') +
+      '<div class="analisa-body">Bulan berjalan termasuk jendela pemupukan TM sesuai Vademicum: <b>'+jendelaAktif.label+'</b> ('+jendelaAktif.bulan.map(function(b){return NAMA_BULAN_ID[b];}).join('/')+'). ' +
       (cukupLembab
         ? 'Curah hujan 7 hari terakhir <b>'+fmt(an.total7)+' mm</b> &mdash; tanah cukup lembab, syarat pemupukan (dibenam saat tanah basah) terpenuhi.'
         : 'Curah hujan 7 hari terakhir hanya <b>'+fmt(an.total7)+' mm</b> &mdash; kondisi cenderung kering, pastikan diairi dulu sebelum pupuk dibenam agar tidak terjadi plasmolisa/penguapan N berlebih.') +
       ' Pastikan Panglepan/PLP dan Wiwil Halus I&amp;II sudah selesai sebelum mulai memupuk.</div>';
   } else {
-    const bulanTarget = jendelaPemupukan.map(function(j){ return j[0]; }).find(function(b){ return b > bulanSekarang; });
-    const bulanBerikutnya = bulanTarget !== undefined ? bulanTarget : jendelaPemupukan[0][0];
+    // cari jendela berikutnya (urutan kalender mulai dari bulan berjalan)
+    let jendelaBerikutnya = null, jarakMin = 99;
+    jendelaPemupukan.forEach(function(j){
+      j.bulan.forEach(function(b){
+        const jarak = (b - bulanSekarang + 12) % 12;
+        if (jarak > 0 && jarak < jarakMin){ jarakMin = jarak; jendelaBerikutnya = j; }
+      });
+    });
     pemupukanHtml = statusPill('warn','Di luar jendela') +
-      '<div class="analisa-body">Belum masuk jendela pemupukan semester. Jendela berikutnya: <b>'+NAMA_BULAN_ID[bulanBerikutnya]+'/'+NAMA_BULAN_ID[bulanBerikutnya+1]+'</b>.</div>';
+      '<div class="analisa-body">Bulan berjalan di luar jendela pemupukan TM. Jendela berikutnya: <b>'+jendelaBerikutnya.label+'</b> ('+jendelaBerikutnya.bulan.map(function(b){return NAMA_BULAN_ID[b];}).join('/')+').</div>';
   }
   document.getElementById('pemupukanBody').innerHTML = pemupukanHtml;
 
