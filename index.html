@@ -644,8 +644,13 @@ function renderIklimTahunan(data){
   const rataKering = totalKering / tahunPenuh.length;
   const rataBasah = totalBasah / tahunPenuh.length;
   const rataLembab = totalLembab / tahunPenuh.length;
-  const q = rataBasah > 0 ? (rataKering / rataBasah) * 100 : (rataKering > 0 ? Infinity : 0);
-  const klas = klasifikasiSchmidtFerguson_(q);
+  // Kasus tepi: kalau rata-rata bulan kering MAUPUN basah sama-sama nol
+  // (seluruh bulan jatuh di pita lembab 60-100mm - sangat tidak lazim
+  // pada data curah hujan nyata), Q = 0/0 tidak terdefinisi secara
+  // matematis - jangan paksa jadi Tipe A, tandai tidak bisa diklasifikasikan.
+  const qTakTerdefinisi = (rataBasah === 0 && rataKering === 0);
+  const q = qTakTerdefinisi ? null : (rataBasah > 0 ? (rataKering / rataBasah) * 100 : Infinity);
+  const klas = qTakTerdefinisi ? null : klasifikasiSchmidtFerguson_(q);
 
   // Tren: regresi linier sederhana total tahunan vs indeks tahun
   const n = totalTahunan.length;
@@ -679,11 +684,16 @@ function renderIklimTahunan(data){
       ' rata-rata '+tahunPenuh.length+' tahun lengkap pada periode bulan yang sama.</div>';
   }
 
+  const bagianKlasifikasi = qTakTerdefinisi
+    ? statusPill('warn','Tidak dapat diklasifikasikan') +
+      '<div class="analisa-body">Rata-rata bulan kering maupun bulan basah sama-sama nol (seluruh bulan berada di pita lembab 60&ndash;100mm) &mdash; nilai Q Schmidt-Ferguson tidak terdefinisi (0/0) untuk kondisi ini. Kasus ini sangat tidak lazim dan sebaiknya dicek ulang kembali datanya.</div>'
+    : statusPill('good', 'Tipe Iklim '+klas.huruf+' &mdash; '+klas.label) +
+      '<div class="analisa-body">Klasifikasi Schmidt-Ferguson berdasarkan rata-rata '+tahunPenuh.length+' tahun data lengkap ('+tahunPenuh[0]+'&ndash;'+tahunPenuh[tahunPenuh.length-1]+', rata-rata 4 stasiun): ' +
+        'rata-rata <b>'+rataKering.toFixed(1)+' bulan kering</b> (&lt;60mm), <b>'+rataLembab.toFixed(1)+' bulan lembab</b> (60&ndash;100mm), <b>'+rataBasah.toFixed(1)+' bulan basah</b> (&ge;100mm) per tahun. ' +
+        'Nilai Q = '+(isFinite(q) ? q.toFixed(1) : '&infin;')+'% &rarr; <b>Tipe '+klas.huruf+' ('+klas.label+')</b>, sesuai dengan kondisi tipikal kebun kopi dataran tinggi.</div>';
+
   el.innerHTML =
-    statusPill('good', 'Tipe Iklim '+klas.huruf+' &mdash; '+klas.label) +
-    '<div class="analisa-body">Klasifikasi Schmidt-Ferguson berdasarkan rata-rata '+tahunPenuh.length+' tahun data lengkap ('+tahunPenuh[0]+'&ndash;'+tahunPenuh[tahunPenuh.length-1]+', rata-rata 4 stasiun): ' +
-      'rata-rata <b>'+rataKering.toFixed(1)+' bulan kering</b> (&lt;60mm), <b>'+rataLembab.toFixed(1)+' bulan lembab</b> (60&ndash;100mm), <b>'+rataBasah.toFixed(1)+' bulan basah</b> (&ge;100mm) per tahun. ' +
-      'Nilai Q = '+(isFinite(q) ? q.toFixed(1) : '&infin;')+'% &rarr; <b>Tipe '+klas.huruf+' ('+klas.label+')</b>, sesuai dengan kondisi tipikal kebun kopi dataran tinggi.</div>' +
+    bagianKlasifikasi +
     '<div class="analisa-body" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">' +
       'Tren curah hujan tahunan ('+tahunPenuh[0]+'&ndash;'+tahunPenuh[tahunPenuh.length-1]+'): rata-rata <b>'+fmt(yMean)+' mm/tahun</b>, kecenderungan <b>'+arahTren+'</b> ('+(slope >= 0 ? '+' : '')+fmt(slope)+' mm/tahun). ' +
       'Tahun terbasah: <b>'+tahunMax+'</b> ('+fmt(totalMax)+' mm); tahun terkering: <b>'+tahunMin+'</b> ('+fmt(totalMin)+' mm).</div>' +
@@ -710,7 +720,10 @@ function kategoriSpi_(z){
 function rataStd_(arr){
   const n = arr.length;
   const mean = arr.reduce(function(a,b){return a+b;},0) / n;
-  const varians = arr.reduce(function(s,x){return s + (x-mean)*(x-mean);}, 0) / n;
+  // Simpangan baku SAMPEL (pembagi n-1, koreksi Bessel), bukan populasi -
+  // lebih tepat karena histori yang tersedia baru berupa sampel kecil
+  // (beberapa tahun), bukan seluruh populasi iklim jangka panjang.
+  const varians = n > 1 ? arr.reduce(function(s,x){return s + (x-mean)*(x-mean);}, 0) / (n - 1) : 0;
   return { mean: mean, std: Math.sqrt(varians) };
 }
 
