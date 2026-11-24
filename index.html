@@ -193,6 +193,24 @@
     </div>
   </section>
 
+  <section id="sectionIklim">
+    <h3 class="section-title">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 18a4 4 0 0 1 0-8 5 5 0 0 1 9.6-1.8A4.5 4.5 0 0 1 20 12.5 3.5 3.5 0 0 1 16.5 18H4Z"/><path d="M8 20v1M12 20v1.5M16 20v1"/></svg>
+      Analisa Iklim &amp; Tren Curah Hujan Tahunan
+    </h3>
+    <div class="card analisa-card" id="cardIklim" style="border-left-color:var(--mrawan);">
+      <div id="iklimBody"><div class="placeholder">Memuat&hellip;</div></div>
+    </div>
+
+    <div class="card analisa-card" id="cardSpi" style="border-left-color:var(--tanahmanis);margin-top:12px;">
+      <div class="analisa-head">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12h4l2-7 4 14 2-7h4"/></svg>
+        <div class="analisa-title">Anomali Curah Hujan (SPI) &amp; Korelasi Kegiatan Kebun</div>
+      </div>
+      <div id="spiBody"><div class="placeholder">Memuat&hellip;</div></div>
+    </div>
+  </section>
+
   <section id="sectionAnalisa">
     <h3 class="section-title">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3c2 3 2 5 0 7-2-2-2-4 0-7Z"/><path d="M5 14c3-1 5 0 6 2 1-2 3-3 6-2-1 4-4 7-6 7s-5-3-6-7Z"/></svg>
@@ -293,6 +311,8 @@ async function muatData(){
     renderHariIni(data);
     renderBulanIni(data);
     renderHistori(data);
+    renderIklimTahunan(data);
+    renderSpi(data);
     renderAnalisa(data);
   } catch(err){
     document.getElementById('cardsHariIni').innerHTML = '<div class="placeholder">Gagal memuat data: ' + String(err.message || err) + '</div>';
@@ -567,6 +587,226 @@ function hitungAnalisaPembungaan(harianMM){
 function statusPill(kind, text){
   const cls = kind === 'good' ? 'status-good' : (kind === 'warn' ? 'status-warn' : 'status-crit');
   return '<span class="status-pill '+cls+'">'+text+'</span>';
+}
+
+// ---------- ANALISA IKLIM & TREN TAHUNAN (standar Schmidt-Ferguson) ----------
+// Klasifikasi iklim per Schmidt & Ferguson (1951), berdasarkan kriteria
+// Mohr: Bulan Kering <60mm, Bulan Lembab 60-100mm, Bulan Basah >=100mm.
+// Q = (rata-rata jumlah bulan kering / rata-rata jumlah bulan basah) x 100%.
+function klasifikasiSchmidtFerguson_(q){
+  if (q < 14.3) return { huruf:'A', label:'Sangat Basah' };
+  if (q < 33.3) return { huruf:'B', label:'Basah' };
+  if (q < 60)   return { huruf:'C', label:'Agak Basah' };
+  if (q < 100)  return { huruf:'D', label:'Sedang' };
+  if (q < 167)  return { huruf:'E', label:'Agak Kering' };
+  if (q < 300)  return { huruf:'F', label:'Kering' };
+  if (q < 700)  return { huruf:'G', label:'Sangat Kering' };
+  return { huruf:'H', label:'Luar Biasa Kering' };
+}
+
+function renderIklimTahunan(data){
+  const el = document.getElementById('iklimBody');
+  const histori = data.histori_bulanan || [];
+  if (!histori.length){
+    el.innerHTML = '<div class="placeholder">Belum ada data histori untuk analisa iklim.</div>';
+    return;
+  }
+
+  // Rata-rata mm (4 stasiun) per tahun-bulan
+  const perTahunBulan = {}; // tahun -> {bulan(0-11): rataRataMm}
+  histori.forEach(function(m){
+    if (!perTahunBulan[m.tahun]) perTahunBulan[m.tahun] = {};
+    perTahunBulan[m.tahun][m.bulan] = (m.total.kantor + m.total.mrawan + m.total.sumbersari + m.total.tanahManis) / 4;
+  });
+
+  const semuaTahun = Object.keys(perTahunBulan).map(Number).sort(function(a,b){return a-b;});
+  const tahunPenuh = semuaTahun.filter(function(t){ return Object.keys(perTahunBulan[t]).length === 12; });
+
+  if (tahunPenuh.length < 2){
+    el.innerHTML = statusPill('warn','Data belum cukup') +
+      '<div class="analisa-body">Baru ada <b>'+tahunPenuh.length+' tahun</b> data lengkap (12 bulan) dari '+semuaTahun.length+' tahun yang tercatat. Klasifikasi iklim Schmidt-Ferguson dan analisa tren memerlukan minimal beberapa tahun data lengkap supaya hasilnya bermakna secara statistik.</div>';
+    return;
+  }
+
+  let totalKering = 0, totalBasah = 0, totalLembab = 0;
+  const totalTahunan = []; // [{tahun, total}]
+  tahunPenuh.forEach(function(t){
+    let kering = 0, basah = 0, lembab = 0, totalMm = 0;
+    for (let b = 0; b < 12; b++){
+      const mm = perTahunBulan[t][b];
+      totalMm += mm;
+      if (mm < 60) kering++; else if (mm < 100) lembab++; else basah++;
+    }
+    totalKering += kering; totalBasah += basah; totalLembab += lembab;
+    totalTahunan.push({ tahun: t, total: Math.round(totalMm * 10) / 10 });
+  });
+
+  const rataKering = totalKering / tahunPenuh.length;
+  const rataBasah = totalBasah / tahunPenuh.length;
+  const rataLembab = totalLembab / tahunPenuh.length;
+  const q = rataBasah > 0 ? (rataKering / rataBasah) * 100 : (rataKering > 0 ? Infinity : 0);
+  const klas = klasifikasiSchmidtFerguson_(q);
+
+  // Tren: regresi linier sederhana total tahunan vs indeks tahun
+  const n = totalTahunan.length;
+  const ys = totalTahunan.map(function(d){ return d.total; });
+  const xMean = (n - 1) / 2;
+  const yMean = ys.reduce(function(a,b){return a+b;}, 0) / n;
+  let num = 0, den = 0;
+  for (let i = 0; i < n; i++){ num += (i - xMean) * (ys[i] - yMean); den += (i - xMean) * (i - xMean); }
+  const slope = den !== 0 ? num / den : 0;
+  const arahTren = Math.abs(slope) < (yMean * 0.01) ? 'relatif stabil' : (slope > 0 ? 'meningkat' : 'menurun');
+
+  const totalMin = Math.min.apply(null, ys);
+  const totalMax = Math.max.apply(null, ys);
+  const tahunMin = totalTahunan[ys.indexOf(totalMin)].tahun;
+  const tahunMax = totalTahunan[ys.indexOf(totalMax)].tahun;
+
+  // Tahun berjalan yang belum genap 12 bulan - bandingkan laju sejauh ini
+  // vs rata-rata tahun-tahun lengkap pada periode bulan yang sama.
+  const tahunTerbaru = semuaTahun[semuaTahun.length - 1];
+  let catatanTahunIni = '';
+  if (tahunPenuh.indexOf(tahunTerbaru) === -1){
+    const bulanTerisi = Object.keys(perTahunBulan[tahunTerbaru]).map(Number).sort(function(a,b){return a-b;});
+    const totalSejauhIni = bulanTerisi.reduce(function(s,b){ return s + perTahunBulan[tahunTerbaru][b]; }, 0);
+    const rataSejauhIni = tahunPenuh.reduce(function(s,t){
+      return s + bulanTerisi.reduce(function(ss,b){ return ss + (perTahunBulan[t][b] || 0); }, 0);
+    }, 0) / tahunPenuh.length;
+    const persenBeda = rataSejauhIni > 0 ? Math.round(((totalSejauhIni - rataSejauhIni) / rataSejauhIni) * 100) : 0;
+    catatanTahunIni = '<div class="analisa-body" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">' +
+      'Tahun <b>'+tahunTerbaru+'</b> baru berjalan '+bulanTerisi.length+' bulan ('+bulanTerisi.map(function(b){return NAMA_BULAN_ID[b];}).join(', ')+'), total sejauh ini <b>'+fmt(totalSejauhIni)+' mm</b> &mdash; ' +
+      (persenBeda === 0 ? 'setara dengan' : (persenBeda > 0 ? '<b>'+persenBeda+'% lebih basah</b> dibanding' : '<b>'+Math.abs(persenBeda)+'% lebih kering</b> dibanding')) +
+      ' rata-rata '+tahunPenuh.length+' tahun lengkap pada periode bulan yang sama.</div>';
+  }
+
+  el.innerHTML =
+    statusPill('good', 'Tipe Iklim '+klas.huruf+' &mdash; '+klas.label) +
+    '<div class="analisa-body">Klasifikasi Schmidt-Ferguson berdasarkan rata-rata '+tahunPenuh.length+' tahun data lengkap ('+tahunPenuh[0]+'&ndash;'+tahunPenuh[tahunPenuh.length-1]+', rata-rata 4 stasiun): ' +
+      'rata-rata <b>'+rataKering.toFixed(1)+' bulan kering</b> (&lt;60mm), <b>'+rataLembab.toFixed(1)+' bulan lembab</b> (60&ndash;100mm), <b>'+rataBasah.toFixed(1)+' bulan basah</b> (&ge;100mm) per tahun. ' +
+      'Nilai Q = '+(isFinite(q) ? q.toFixed(1) : '&infin;')+'% &rarr; <b>Tipe '+klas.huruf+' ('+klas.label+')</b>, sesuai dengan kondisi tipikal kebun kopi dataran tinggi.</div>' +
+    '<div class="analisa-body" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">' +
+      'Tren curah hujan tahunan ('+tahunPenuh[0]+'&ndash;'+tahunPenuh[tahunPenuh.length-1]+'): rata-rata <b>'+fmt(yMean)+' mm/tahun</b>, kecenderungan <b>'+arahTren+'</b> ('+(slope >= 0 ? '+' : '')+fmt(slope)+' mm/tahun). ' +
+      'Tahun terbasah: <b>'+tahunMax+'</b> ('+fmt(totalMax)+' mm); tahun terkering: <b>'+tahunMin+'</b> ('+fmt(totalMin)+' mm).</div>' +
+    catatanTahunIni;
+}
+
+// ---------- SPI (Standardized Precipitation Index) ----------
+// Pendekatan disederhanakan (standardisasi langsung mean/stddev per
+// bulan kalender, TANPA fitting distribusi gamma) karena data historis
+// yang tersedia baru beberapa tahun - fitting gamma butuh sampel lebih
+// panjang supaya stabil. Ini sudah cukup untuk mendeteksi ARAH & BESAR
+// anomali (basah/kering dibanding normal), walau tidak se-presisi SPI
+// versi penuh ala BMKG/WMO untuk periode data puluhan tahun.
+function kategoriSpi_(z){
+  if (z >= 2.0)  return { label:'Sangat Basah Ekstrem', kind:'crit' };
+  if (z >= 1.5)  return { label:'Sangat Basah',          kind:'warn' };
+  if (z >= 1.0)  return { label:'Basah Sedang',          kind:'warn' };
+  if (z > -1.0)  return { label:'Normal',                kind:'good' };
+  if (z > -1.5)  return { label:'Kering Sedang',         kind:'warn' };
+  if (z > -2.0)  return { label:'Kering Parah',          kind:'crit' };
+  return { label:'Kering Ekstrem', kind:'crit' };
+}
+
+function rataStd_(arr){
+  const n = arr.length;
+  const mean = arr.reduce(function(a,b){return a+b;},0) / n;
+  const varians = arr.reduce(function(s,x){return s + (x-mean)*(x-mean);}, 0) / n;
+  return { mean: mean, std: Math.sqrt(varians) };
+}
+
+function renderSpi(data){
+  const el = document.getElementById('spiBody');
+  const histori = data.histori_bulanan || [];
+  if (!histori.length){
+    el.innerHTML = '<div class="placeholder">Belum ada data histori untuk analisa SPI.</div>';
+    return;
+  }
+
+  // Peta global: globalIdx (tahun*12+bulan) -> rata-rata mm 4 stasiun
+  const peta = {};
+  let globalMax = -Infinity, bulanTarget = null, tahunTarget = null;
+  histori.forEach(function(m){
+    const g = m.tahun * 12 + m.bulan;
+    peta[g] = (m.total.kantor + m.total.mrawan + m.total.sumbersari + m.total.tanahManis) / 4;
+    if (g > globalMax){ globalMax = g; bulanTarget = m.bulan; tahunTarget = m.tahun; }
+  });
+
+  // ---- SPI-1: standardisasi nilai bulan target thd histori bulan kalender yang sama ----
+  const sampelSpi1 = [];
+  Object.keys(peta).forEach(function(gStr){
+    const g = Number(gStr);
+    if (g % 12 === bulanTarget) sampelSpi1.push(peta[g]);
+  });
+  let spi1 = null, kat1 = null;
+  if (sampelSpi1.length >= 3){
+    const rs = rataStd_(sampelSpi1);
+    if (rs.std > 0){
+      spi1 = (peta[globalMax] - rs.mean) / rs.std;
+      kat1 = kategoriSpi_(spi1);
+    }
+  }
+
+  // ---- SPI-3: jumlah 3 bulan berturut-turut berakhir di bulan target ----
+  function jumlah3_(gAkhir){
+    if (peta[gAkhir] === undefined || peta[gAkhir-1] === undefined || peta[gAkhir-2] === undefined) return null;
+    return peta[gAkhir] + peta[gAkhir-1] + peta[gAkhir-2];
+  }
+  const nilai3Target = jumlah3_(globalMax);
+  const sampelSpi3 = [];
+  Object.keys(peta).forEach(function(gStr){
+    const g = Number(gStr);
+    if (g % 12 === bulanTarget){
+      const v = jumlah3_(g);
+      if (v !== null) sampelSpi3.push(v);
+    }
+  });
+  let spi3 = null, kat3 = null;
+  if (nilai3Target !== null && sampelSpi3.length >= 3){
+    const rs3 = rataStd_(sampelSpi3);
+    if (rs3.std > 0){
+      spi3 = (nilai3Target - rs3.mean) / rs3.std;
+      kat3 = kategoriSpi_(spi3);
+    }
+  }
+
+  if (!kat1 && !kat3){
+    el.innerHTML = statusPill('warn','Data belum cukup') +
+      '<div class="analisa-body">Riwayat data bulan kalender yang sama ('+NAMA_BULAN_ID[bulanTarget]+') baru tersedia di kurang dari 3 tahun &mdash; SPI memerlukan histori multi-tahun untuk menghitung rata-rata &amp; simpangan baku pembanding yang bermakna.</div>';
+    return;
+  }
+
+  const labelBulanTarget = NAMA_BULAN_ID[bulanTarget] + ' ' + tahunTarget;
+  let html = '<div class="analisa-body">Periode acuan: <b>'+labelBulanTarget+'</b>. ';
+  if (kat1) html += 'SPI-1 (anomali bulan ini saja): '+statusPill(kat1.kind, 'SPI-1 '+spi1.toFixed(2)+' &mdash; '+kat1.label)+'. ';
+  if (kat3) html += 'SPI-3 (anomali 3 bulan terakhir, '+NAMA_BULAN_ID[(bulanTarget-2+12)%12]+'&ndash;'+NAMA_BULAN_ID[bulanTarget]+'): '+statusPill(kat3.kind, 'SPI-3 '+spi3.toFixed(2)+' &mdash; '+kat3.label)+'.';
+  html += '</div>';
+
+  // Korelasi dengan kegiatan kebun - pakai SPI-3 sebagai acuan utama
+  // (lebih representatif kondisi musiman), SPI-1 sebagai sinyal tambahan
+  // kalau berbeda arah dari SPI-3.
+  const acuan = kat3 || kat1;
+  const nilaiAcuan = kat3 ? spi3 : spi1;
+  let korelasi = '';
+  if (nilaiAcuan >= 1.0){
+    korelasi = '<ul style="margin:6px 0 0 18px;padding:0;font-size:13.5px;color:var(--text-secondary);line-height:1.6;">' +
+      '<li>Kondisi lebih basah dari normal &mdash; risiko <b>pencucian/leaching unsur hara</b> (terutama N dari Urea) meningkat; pantau efektivitas pemupukan lebih ketat.</li>' +
+      '<li>Kelembaban tinggi mendukung perkembangan <b>OPT</b> seperti karat daun (<i>Hemileia vastatrix</i>) dan penyakit buah &mdash; tingkatkan opname/monitoring hama-penyakit (BAB VIII Proteksi Tanaman).</li>' +
+      '<li>Waspada <b>erosi &amp; longsor</b> di areal berlereng (Afdeling dengan kemiringan tinggi) &mdash; periksa kondisi teras dan drainase.</li>' +
+      '<li>Pasca panen: pengeringan hasil (penjemuran/Mason Dryer) perlu durasi lebih panjang karena kadar air biji lebih tinggi.</li>' +
+      '<li>Chemical Weeding sebaiknya menunggu jeda tanpa hujan &mdash; lihat kartu Rencana Chemical Weeding untuk kondisi harian terkini.</li>' +
+      '</ul>';
+  } else if (nilaiAcuan <= -1.0){
+    korelasi = '<ul style="margin:6px 0 0 18px;padding:0;font-size:13.5px;color:var(--text-secondary);line-height:1.6;">' +
+      '<li>Kondisi lebih kering dari normal &mdash; potensi defisit lengas tanah; pembentukan ruas melambat (fase vegetatif) atau justru jadi pemicu pembungaan bila diikuti hujan pembuka (fase generatif) &mdash; lihat kartu Proyeksi Pembungaan.</li>' +
+      '<li>Bila masuk jendela pemupukan, pastikan pengairan tambahan sebelum pupuk dibenam untuk menghindari plasmolisa/penguapan N berlebih.</li>' +
+      '<li>Waspada risiko <b>kebakaran</b> areal naungan/serasah kering, terutama bila kekeringan berlangsung lama (Kering Parah/Ekstrem).</li>' +
+      '<li>Kondisi justru <b>mendukung Chemical Weeding</b> &mdash; translokasi herbisida sistemik lebih baik tanpa gangguan hujan (kecuali sudah masuk kering ekstrem &gt;25 hari, lihat kartu Weeding).</li>' +
+      '</ul>';
+  } else {
+    korelasi = '<div class="analisa-body" style="margin-top:4px;">Kondisi curah hujan berada pada kisaran normal dibanding rata-rata historis periode yang sama &mdash; tidak ada penyesuaian khusus, ikuti jadwal kegiatan standar sesuai Vademicum pada kartu-kartu di atas.</div>';
+  }
+
+  el.innerHTML = html + korelasi;
 }
 
 // Fase fisiologis kopi robusta (tanaman hari pendek, Vademicum BAB VII):
