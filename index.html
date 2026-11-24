@@ -232,6 +232,14 @@
         <div id="tokokBody"><div class="placeholder">Memuat&hellip;</div></div>
       </div>
 
+      <div class="card analisa-card" id="cardAnalisaDaun" style="border-left-color:var(--kantor);">
+        <div class="analisa-head">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21c-5-1-8-5-8-10 0-3 2-5 4-5 1 3 2 5 4 7 2-2 3-4 4-7 2 0 4 2 4 5 0 5-3 9-8 10Z"/><path d="M12 21v-9"/></svg>
+          <div class="analisa-title">Jendela Analisa Daun (SPCD)</div>
+        </div>
+        <div id="analisaDaunBody"><div class="placeholder">Memuat&hellip;</div></div>
+      </div>
+
     </div>
   </section>
 
@@ -710,6 +718,37 @@ function renderAnalisa(data){
       '<div class="analisa-body">Pola curah hujan menunjukkan musim hujan sudah berlangsung. Periksa di lapangan apakah Tokok Pelindung &amp; Rempes Pelindung awal musim ini sudah dilaksanakan.</div>';
   }
   document.getElementById('tokokBody').innerHTML = tokokHtml;
+
+  // --- Jendela Analisa Daun (SPCD) ---
+  // Vademicum BAB IX hal.222 "Waktu Pengambilan Contoh Daun": dilakukan
+  // menjelang panen puncak (Juni-Agustus), minimal 2 bulan setelah
+  // pemupukan terakhir, TIDAK pada musim hujan dengan curah hujan
+  // >400mm/bulan.
+  const bulanAnalisaDaun = [5,6,7]; // Juni, Juli, Agustus (0-based)
+  const dalamJendelaDaun = bulanAnalisaDaun.indexOf(bulanSekarang) !== -1;
+  const biTotal = data.bulan_ini ? data.bulan_ini.total : null;
+  const rataRataBulanIni = biTotal
+    ? (biTotal.kantor + biTotal.mrawan + biTotal.sumbersari + biTotal.tanahManis) / 4
+    : null;
+  const curahAman = rataRataBulanIni !== null ? rataRataBulanIni <= 400 : null;
+
+  let analisaDaunHtml;
+  if (!dalamJendelaDaun){
+    let bulanTarget = bulanAnalisaDaun.find(function(b){ return b > bulanSekarang; });
+    if (bulanTarget === undefined) bulanTarget = bulanAnalisaDaun[0];
+    analisaDaunHtml = statusPill('warn','Di luar jendela') +
+      '<div class="analisa-body">Pengambilan contoh daun (SPCD) untuk analisa dosis pupuk tahun berjalan dilakukan menjelang panen puncak, yaitu <b>Juni&ndash;Agustus</b>. Jendela berikutnya: <b>'+NAMA_BULAN_ID[bulanTarget]+'</b>.</div>';
+  } else if (rataRataBulanIni === null){
+    analisaDaunHtml = statusPill('warn','Data belum cukup') +
+      '<div class="analisa-body">Bulan berjalan termasuk jendela Juni&ndash;Agustus, tapi data curah hujan bulan ini belum tersedia untuk mengecek syarat &lt;400&nbsp;mm.</div>';
+  } else if (curahAman){
+    analisaDaunHtml = statusPill('good','Aman untuk diambil') +
+      '<div class="analisa-body">Bulan berjalan termasuk jendela Juni&ndash;Agustus dan rata-rata curah hujan 4 stasiun bulan ini <b>'+fmt(rataRataBulanIni)+' mm</b> (di bawah batas 400&nbsp;mm) &mdash; syarat Vademicum terpenuhi. Pastikan juga minimal 2 bulan sejak pemupukan terakhir, ambil jam 07.00&ndash;11.00 saat daun tidak berembun, dan hentikan sementara bila turun hujan saat pengambilan.</div>';
+  } else {
+    analisaDaunHtml = statusPill('crit','Tunda - curah hujan tinggi') +
+      '<div class="analisa-body">Bulan berjalan termasuk jendela Juni&ndash;Agustus, namun rata-rata curah hujan 4 stasiun bulan ini <b>'+fmt(rataRataBulanIni)+' mm</b> sudah melebihi batas 400&nbsp;mm/bulan sesuai Vademicum &mdash; sebaiknya ditunda sampai curah hujan mereda.</div>';
+  }
+  document.getElementById('analisaDaunBody').innerHTML = analisaDaunHtml;
 }
 
 muatData();
